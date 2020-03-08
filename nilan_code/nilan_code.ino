@@ -8,6 +8,13 @@
 #include <ModbusMaster.h>
 #include <PubSubClient.h>
 #include <DoubleResetDetector.h>
+#include "nilan_code.h"
+#if SERIAL == SERIAL_SOFTWARE
+#include <SoftwareSerial.h>
+#endif
+
+#define SERIAL_SOFTWARE 1
+#define SERIAL_HARDWARE 2
 #include <Ticker.h>
 Ticker ticker;
  
@@ -18,6 +25,9 @@ Ticker ticker;
 #define MODESET 1002
 #define TEMPSET 1004
 
+#if SERIAL == SERIAL_SOFTWARE
+SoftwareSerial SSerial(SERIAL_SOFTWARE_RX, SERIAL_SOFTWARE_TX); // RX, TX
+#endif
 /************ DOUBLE RESET DETECTOR SETUP ********************/
  
 // Number of seconds after reset during which a
@@ -322,8 +332,17 @@ void setup() {
   });
   ArduinoOTA.begin();
   server.begin();
-  Serial.begin(19200, SERIAL_8E1);
-  node.begin(30, Serial);
+  #if SERIAL == SERIAL_SOFTWARE
+    #warning Compiling for software serial
+    SSerial.begin(19200); // SERIAL_8E1
+    node.begin(30, SSerial);
+  #elif SERIAL == SERIAL_HARDWARE
+    #warning Compiling for hardware serial
+    Serial.begin(19200, SERIAL_8E1);
+    node.begin(30, Serial);
+  #else
+    #error hardware og serial serial port?
+  #endif
  
   mqttclient.setServer(mqtt_server,1883);
   mqttclient.setCallback(mqttcallback);
