@@ -287,10 +287,10 @@ void setup() {
   } else {
     Serial.println("No Double Reset Detected");
     wifiManager.autoConnect("Nilan Air Gateway");
+    // if you get here you have connected to the WiFi
+    Serial.println("Connected.");
   }
- 
-  // if you get here you have connected to the WiFi
-  Serial.println("Connected.");
+
 
   ticker.detach();
   //keep LED on
@@ -440,15 +440,23 @@ char WriteModbus(uint16_t addr, int16_t val) {
  
  
  
-void mqttreconnect() {
+void mqttreconnect()
+{
   int numretries = 0;
-  while (!mqttclient.connected() && numretries < 3) {
-    if (mqttclient.connected()) {
+  while (!mqttclient.connected() && numretries < 3)
+  {
+    if (mqttclient.connect("ID:NILAN", mqtt_user, mqtt_pass))
+    {
+      Serial.println("Connected to MQTT Server");
+      Serial.println(mqtt_server);
+      mqttclient.publish("ventilation/status", "Online");
       mqttclient.subscribe("ventilation/ventset");
       mqttclient.subscribe("ventilation/modeset");
       mqttclient.subscribe("ventilation/runset");
       mqttclient.subscribe("ventilation/tempset");
-    } else {
+    }
+    else
+    {
       delay(1000);
     }
     numretries ++;
