@@ -19,11 +19,12 @@
 Ticker ticker;
  
 #define MAXREGSIZE 26
-#define SENDINTERVAL 180000
+#define SENDINTERVAL 60000
 #define VENTSET 1003
 #define RUNSET 1001
 #define MODESET 1002
 #define TEMPSET 1004
+#define PROGSET 500
 
 #if SERIAL == SERIAL_SOFTWARE
 SoftwareSerial SSerial(SERIAL_SOFTWARE_RX, SERIAL_SOFTWARE_TX); // RX, TX
@@ -42,6 +43,7 @@ DoubleResetDetector drd(DRD_TIMEOUT, DRD_ADDRESS);
 /*********************************************************************************************/
 
 char mqtt_server[40];
+char mqtt_port[40];
 char mqtt_user[40];
 char mqtt_pass[40]; 
  
@@ -59,6 +61,7 @@ enum reqtypes
   reqalarm,
   reqtime,
   reqcontrol,
+  reqprogram,
   reqspeed,
   reqairtemp,
   reqairflow,
@@ -75,10 +78,10 @@ enum reqtypes
   reqmax
 };
  
-String groups[] = {"temp", "alarm", "time", "control", "speed", "airtemp", "airflow", "airheat", "user", "user2", "info", "inputairtemp", "app", "output", "display1", "display2", "display"};
+String groups[] = {"temp", "alarm", "time", "control", "program", "speed", "airtemp", "airflow", "airheat", "user", "user2", "info", "inputairtemp", "app", "output", "display1", "display2", "display"};
 byte regsizes[] = {23, 10, 6, 8, 2, 6, 2, 0, 6, 6, 14, 7, 4, 26, 4, 4, 1};
-int regaddresses[] = {200, 400, 300, 1000, 200, 1200, 1100, 0, 600, 610, 100, 1200, 0, 100, 2002, 2007, 3000};
-byte regtypes[] = {8, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 2, 1, 4, 4, 8};
+int regaddresses[] = {200, 400, 300, 1000, 500, 200, 1200, 1100, 0, 600, 610, 100, 1200, 0, 100, 2002, 2007, 3000};
+byte regtypes[] = {8, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 2, 1, 4, 4, 8};
 char *regnames[][MAXREGSIZE] = {
     //temp
     {"T0_Controller", "T1_Intake", "T2_Inlet", "T3_Exhaust", "T4_Outlet", "T5_Cond", "T6_Evap", "T7_Inlet", "T8_Outdoor", "T9_Heater", "T10_Extern", "T11_Top", "T12_Bottom", "T13_Return", "T14_Supply", "T15_Room", "T16", "T17_PreHeat", "T18_PresPibe", "pSuc", "pDis", "RH", "CO2"},
@@ -88,6 +91,8 @@ char *regnames[][MAXREGSIZE] = {
     {"Second", "Minute", "Hour", "Day", "Month", "Year"},
     //control
     {"Type", "RunSet", "ModeSet", "VentSet", "TempSet", "ServiceMode", "ServicePct", "Preset"},
+    //week program
+    {"WeekProgramSelect"},
     //speed
     {"ExhaustSpeed", "InletSpeed"},
     //airtemp
@@ -112,7 +117,7 @@ char *regnames[][MAXREGSIZE] = {
     {"Text_1_2", "Text_3_4", "Text_5_6", "Text_7_8"},
     //display2
     {"Text_9_10", "Text_11_12", "Text_13_14", "Text_15_16"},
-    //airbypass
+    //airbypass (display)
     {"AirBypass/IsOpen"}};
  
 char * getName(reqtypes type, int address) {
@@ -241,6 +246,7 @@ void setup() {
           Serial.println("\nparsed json");
          
           strcpy(mqtt_server, json["mqtt_server"]);
+          strcpy(mqtt_port, json["mqtt_port"]);
           strcpy(mqtt_user, json["mqtt_user"]);
           strcpy(mqtt_pass, json["mqtt_pass"]);
          
@@ -255,6 +261,7 @@ void setup() {
   //end read
  
   WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
+  WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 40);
   WiFiManagerParameter custom_mqtt_user("user", "mqtt user", mqtt_user, 40);
   WiFiManagerParameter custom_mqtt_pass("pass", "mqtt pass", mqtt_pass, 40);
  
@@ -274,6 +281,7 @@ void setup() {
  
   //add all your parameters here
   wifiManager.addParameter(&custom_mqtt_server);
+  wifiManager.addParameter(&custom_mqtt_port);
   wifiManager.addParameter(&custom_mqtt_user);
   wifiManager.addParameter(&custom_mqtt_pass);
 
@@ -298,6 +306,7 @@ void setup() {
   
  
   strcpy(mqtt_server, custom_mqtt_server.getValue());
+  strcpy(mqtt_port, custom_mqtt_port.getValue());
   strcpy(mqtt_user, custom_mqtt_user.getValue());
   strcpy(mqtt_pass, custom_mqtt_pass.getValue());
  
@@ -306,6 +315,7 @@ void setup() {
     Serial.println("saving config");
     DynamicJsonDocument json(1024);
     json["mqtt_server"] = mqtt_server;
+    json["mqtt_port"] = mqtt_port;
     json["mqtt_user"] = mqtt_user;
     json["mqtt_pass"] = mqtt_pass;
  
@@ -344,7 +354,7 @@ void setup() {
     #error hardware og serial serial port?
   #endif
  
-  mqttclient.setServer(mqtt_server,1883);
+  mqttclient.setServer(mqtt_server,mqtt_port);
   mqttclient.setCallback(mqttcallback);
 }
  
@@ -492,7 +502,7 @@ void loop()
     long now = millis();
     if (now - lastMsg > SENDINTERVAL)
     {
-      reqtypes rr[] = {reqtemp, reqcontrol, reqoutput, reqspeed, reqalarm, reqinputairtemp, requser, reqdisplay}; // put another register in this line to subscribe
+      reqtypes rr[] = {reqtemp, reqtime, reqcontrol, reqinfo, reqoutput, reqspeed, reqalarm, reqinputairtemp, requser, reqapp, reqdisplay}; // put another register in this line to subscribe
       for (int i = 0; i < (sizeof(rr)/sizeof(rr[0])); i++)
       {
         reqtypes r = rr[i];
@@ -510,6 +520,18 @@ void loop()
               {
               case reqcontrol:
                 mqname = "ventilation/control/"; // Subscribe to the "control" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqprogram:
+                mqname = "ventilation/program/"; // Subscribe to the "control" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqtime:
+                mqname = "ventilation/time/"; // Subscribe to the "info" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqinfo:
+                mqname = "ventilation/info/"; // Subscribe to the "info" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
               case reqoutput:
@@ -535,7 +557,15 @@ void loop()
               case requser:
                 mqname = "ventilation/user/"; // Subscribe to the "user" register
                 itoa((rsbuffer[i]), numstr, 10);
-                break;          
+                break;
+              case reqapp:
+                mqname = "ventilation/app/"; // Subscribe to the "app" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqdisplay:
+                mqname = "ventilation/display/"; // Subscribe to the "AirBypass.IsOpen" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;                
               case reqtemp:
                 if (strncmp("RH", name, 2) == 0) {
                   mqname = "ventilation/moist/"; // Subscribe to moisture-level
