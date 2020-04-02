@@ -14,7 +14,7 @@ UPDATE 1/1-2020 : Now added a .ino file for use with a Nilan VPL15 system. Creat
 
 ### Installing the firmware:
 
-I used the arduino editor to upload the code to my ESP8266 (for now a wemos D1 mini). If your sketch wont compile please check if you use the arduino.json V. 5 or V.6 library. This code uses V.5 and wont build with V.6. 
+I used the arduino editor to upload the code to my ESP8266 (for now a wemos D1 mini). If your sketch wont compile please check if you use the arduino.json V. 5 or V.6 library. This code uses V.6 (tested to work with 6.9.0, upgrade with caution) and wont build with V.5 or latest V.6. 
 
 For setting up your wifi and mqtt broker provide your credentials in the configuration.h file
 
