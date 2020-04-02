@@ -25,6 +25,7 @@ Ticker ticker;
 #define MODESET 1002
 #define TEMPSET 1004
 #define PROGSET 500
+#define BYPASSSET 102
 
 #if SERIAL == SERIAL_SOFTWARE
 SoftwareSerial SSerial(SERIAL_SOFTWARE_RX, SERIAL_SOFTWARE_TX); // RX, TX
@@ -44,6 +45,7 @@ DoubleResetDetector drd(DRD_TIMEOUT, DRD_ADDRESS);
 
 char mqtt_server[40];
 char mqtt_port[40];
+int imqtt_port = mqtt_port - "0";
 char mqtt_user[40];
 char mqtt_pass[40]; 
  
@@ -78,10 +80,10 @@ enum reqtypes
   reqmax
 };
  
-String groups[] = {"temp", "alarm", "time", "control", "program", "speed", "airtemp", "airflow", "airheat", "user", "user2", "info", "inputairtemp", "app", "output", "display1", "display2", "display"};
-byte regsizes[] = {23, 10, 6, 8, 2, 6, 2, 0, 6, 6, 14, 7, 4, 26, 4, 4, 1};
-int regaddresses[] = {200, 400, 300, 1000, 500, 200, 1200, 1100, 0, 600, 610, 100, 1200, 0, 100, 2002, 2007, 3000};
-byte regtypes[] = {8, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 2, 1, 4, 4, 8};
+String groups[] = {   "temp", "alarm", "time", "control", "program", "speed", "airtemp", "airflow", "airheat", "user", "user2", "info", "inputairtemp", "app", "output", "display1", "display2", "display"};
+byte regsizes[] = {   23,     10,      6,       8,         1,        2,      6,          2,         0,          6,      6,      14,     7,              4,     26,       4,          4,          1,};
+int regaddresses[] = {200,    400,     300,    1000,       500,      200,    1200,       1100,      0,          600,    610,    100,    1200,           0,     100,      2002,       2007,       3000};
+byte regtypes[] = {   8,      0,       1,      1,          1,        1,      1,          1,         1,          1,      1,      0,      0,              2,     1,        4,          4,          8};
 char *regnames[][MAXREGSIZE] = {
     //temp
     {"T0_Controller", "T1_Intake", "T2_Inlet", "T3_Exhaust", "T4_Outlet", "T5_Cond", "T6_Evap", "T7_Inlet", "T8_Outdoor", "T9_Heater", "T10_Extern", "T11_Top", "T12_Bottom", "T13_Return", "T14_Supply", "T15_Room", "T16", "T17_PreHeat", "T18_PresPibe", "pSuc", "pDis", "RH", "CO2"},
@@ -354,7 +356,7 @@ void setup() {
     #error hardware og serial serial port?
   #endif
  
-  mqttclient.setServer(mqtt_server,mqtt_port);
+  mqttclient.setServer(mqtt_server, imqtt_port);
   mqttclient.setCallback(mqttcallback);
 }
  
@@ -375,6 +377,18 @@ void mqttcallback(char* topic, byte* payload, unsigned int length) {
     if (length == 1 && payload[0] >= '0' && payload[0] <= '1') {
       int16_t run = payload[0] - '0';
       WriteModbus(RUNSET, run);
+    }
+  }
+  if (strcmp(topic, "ventilation/progset") == 0) {
+    if (length == 1 && payload[0] >= '0' && payload[0] <= '4') {
+      int16_t run = payload[0] - '0';
+      WriteModbus(PROGSET, run);
+    }
+  }
+  if (strcmp(topic, "ventilation/bypassset") == 0) {
+    if (length == 1 && payload[0] >= '0' && payload[0] <= '1') {
+      int16_t run = payload[0] - '0';
+      WriteModbus(BYPASSSET, run);
     }
   }
   if (strcmp(topic, "ventilation/tempset") == 0) {
@@ -464,6 +478,8 @@ void mqttreconnect()
       mqttclient.subscribe("ventilation/modeset");
       mqttclient.subscribe("ventilation/runset");
       mqttclient.subscribe("ventilation/tempset");
+      mqttclient.subscribe("ventilation/progset");
+      mqttclient.subscribe("ventilation/bypassset");
     }
     else
     {
@@ -502,7 +518,7 @@ void loop()
     long now = millis();
     if (now - lastMsg > SENDINTERVAL)
     {
-      reqtypes rr[] = {reqtemp, reqtime, reqcontrol, reqinfo, reqoutput, reqspeed, reqalarm, reqinputairtemp, requser, reqapp, reqdisplay}; // put another register in this line to subscribe
+      reqtypes rr[] = {reqtemp, reqcontrol, reqprogram, reqtime, reqinfo, reqoutput, reqdisplay, reqspeed, reqalarm, reqairtemp, reqinputairtemp, reqairflow, requser, reqapp}; // put another register in this line to subscribe
       for (int i = 0; i < (sizeof(rr)/sizeof(rr[0])); i++)
       {
         reqtypes r = rr[i];
@@ -538,16 +554,16 @@ void loop()
                 mqname = "ventilation/output/"; // Subscribe to the "output" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
-              case reqdisplay:
-                mqname = "ventilation/display/"; // Subscribe to the "input display" register
-                itoa((rsbuffer[i]), numstr, 10);
-                break;
               case reqspeed:
                 mqname = "ventilation/speed/"; // Subscribe to the "speed" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
               case reqalarm:
                 mqname = "ventilation/alarm/"; // Subscribe to the "alarm" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqairtemp:
+                mqname = "ventilation/airtemp/"; // Subscribe to the "airtemp" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
               case reqinputairtemp:
