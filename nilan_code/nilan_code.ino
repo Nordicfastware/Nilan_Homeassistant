@@ -18,6 +18,9 @@
 #define RUNSET 1001
 #define MODESET 1002
 #define TEMPSET 1004
+#define PROGSET 500
+#define BYPASSSET 1300
+#define KEYPRESS 2000
 
 #if SERIAL == SERIAL_SOFTWARE
 SoftwareSerial SSerial(SERIAL_SOFTWARE_RX, SERIAL_SOFTWARE_TX); // RX, TX
@@ -43,6 +46,7 @@ enum reqtypes
   reqalarm,
   reqtime,
   reqcontrol,
+  reqprogram,
   reqspeed,
   reqairtemp,
   reqairflow,
@@ -59,19 +63,21 @@ enum reqtypes
   reqmax
 };
 
-String groups[] = {"temp", "alarm", "time", "control", "speed", "airtemp", "airflow", "airheat", "user", "user2", "info", "inputairtemp", "app", "output", "display1", "display2", "display"};
-byte regsizes[] = {23, 10, 6, 8, 2, 6, 2, 0, 6, 6, 14, 7, 4, 26, 4, 4, 1};
-int regaddresses[] = {200, 400, 300, 1000, 200, 1200, 1100, 0, 600, 610, 100, 1200, 0, 100, 2002, 2007, 3000};
-byte regtypes[] = {8, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 2, 1, 4, 4, 8};
+String groups[] = {   "temp", "alarm", "time", "control", "program", "speed", "airtemp", "airflow", "airheat", "user", "user2", "info", "inputairtemp", "app", "output", "display1", "display2", "display"};
+byte regsizes[] = {   23,     10,      6,       8,         1,        2,      6,          2,         0,          6,      6,      14,     7,              4,     26,       4,          4,          1,};
+int regaddresses[] = {200,    400,     300,    1000,       500,      200,    1200,       1100,      0,          600,    610,    100,    1200,           0,     100,      2002,       2007,       2000};
+byte regtypes[] = {   8,      0,       1,      1,          1,        1,      1,          1,         1,          1,      1,      0,      0,              2,     1,        4,          4,          0};
 char *regnames[][MAXREGSIZE] = {
     //temp
-    {"T0_Controller", NULL, NULL, "T3_Exhaust", "T4_Outlet", NULL, NULL, "T7_Inlet", "T8_Outdoor", NULL, NULL, NULL, NULL, NULL, NULL, "T15_Room", NULL, NULL, NULL, NULL, NULL, "RH", NULL},
+    {"T0_Controller", "T1_Intake", "T2_Inlet", "T3_Exhaust", "T4_Outlet", "T5_Cond", "T6_Evap", "T7_Inlet", "T8_Outdoor", "T9_Heater", "T10_Extern", "T11_Top", "T12_Bottom", "T13_Return", "T14_Supply", "T15_Room", "T16", "T17_PreHeat", "T18_PresPibe", "pSuc", "pDis", "RH", "CO2"},
     //alarm
-    {"Status", "List_1_ID ", "List_1_Date", "List_1_Time", "List_2_ID ", "List_2_Date", "List_2_Time", "List_3_ID ", "List_3_Date", "List_3_Time"},
+    {"Status", "List_1_ID", "List_1_Date", "List_1_Time", "List_2_ID", "List_2_Date", "List_2_Time", "List_3_ID", "List_3_Date", "List_3_Time"},
     //time
     {"Second", "Minute", "Hour", "Day", "Month", "Year"},
     //control
     {"Type", "RunSet", "ModeSet", "VentSet", "TempSet", "ServiceMode", "ServicePct", "Preset"},
+    //week program
+    {"WeekProgramSelect"},
     //speed
     {"ExhaustSpeed", "InletSpeed"},
     //airtemp
@@ -96,8 +102,8 @@ char *regnames[][MAXREGSIZE] = {
     {"Text_1_2", "Text_3_4", "Text_5_6", "Text_7_8"},
     //display2
     {"Text_9_10", "Text_11_12", "Text_13_14", "Text_15_16"},
-    //airbypass
-    {"AirBypass/IsOpen"}};
+    //airbypass (display)
+    {"AirBypass/IsOpen"},};
 
 char *getName(reqtypes type, int address)
 {
@@ -135,6 +141,7 @@ JsonObject &HandleRequest(JsonDocument doc)
     result = ReadModbus(address, nums, rsbuffer, type & 1);
     if (result == 0)
     {
+      root["status"] = "Modbus connection OK";
       for (int i = 0; i < nums; i++)
       {
         char *name = getName(r, i);
@@ -157,6 +164,9 @@ JsonObject &HandleRequest(JsonDocument doc)
           }
         }
       }
+    }
+    else {
+      root["status"] = "Modbus connection failed";
     }
     root["requestaddress"] = address;
     root["requestnum"] = nums;
@@ -237,39 +247,56 @@ void setup()
   mqttclient.setCallback(mqttcallback);
 }
 
-void mqttcallback(char *topic, byte *payload, unsigned int length)
-{
-  if (strcmp(topic, "ventilation/ventset") == 0)
-  {
-    if (length == 1 && payload[0] >= '0' && payload[0] <= '4')
-    {
+void mqttcallback(char* topic, byte* payload, unsigned int length) {
+  if (strcmp(topic, "ap/technical/ventilation/ventset") == 0) {
+    if (length == 1 && payload[0] >= '0' && payload[0] <= '4') {
       int16_t speed = payload[0] - '0';
       WriteModbus(VENTSET, speed);
     }
   }
-  if (strcmp(topic, "ventilation/modeset") == 0)
-  {
-    if (length == 1 && payload[0] >= '0' && payload[0] <= '4')
-    {
+  if (strcmp(topic, "ap/technical/ventilation/keypress") == 0) {
+    if (length == 1 && payload[0] >= '0' && payload[0] <= '4') {
       int16_t mode = payload[0] - '0';
       WriteModbus(MODESET, mode);
     }
   }
-  if (strcmp(topic, "ventilation/runset") == 0)
-  {
-    if (length == 1 && payload[0] >= '0' && payload[0] <= '1')
-    {
+  if (strcmp(topic, "ap/technical/ventilation/modeset") == 0) {
+    if (length == 1 && payload[0] >= '0' && payload[0] <= '4') {
+      int16_t mode = payload[0] - '0';
+      WriteModbus(MODESET, mode);
+    }
+  }
+  if (strcmp(topic, "ap/technical/ventilation/runset") == 0) {
+    if (length == 1 && payload[0] >= '0' && payload[0] <= '1') {
       int16_t run = payload[0] - '0';
       WriteModbus(RUNSET, run);
     }
   }
-  if (strcmp(topic, "ventilation/tempset") == 0)
-  {
-    if (length == 4 && payload[0] >= '0' && payload[0] <= '2')
-    {
+  if (strcmp(topic, "ap/technical/ventilation/progset") == 0) {
+    if (length == 1 && payload[0] >= '0' && payload[0] <= '4') {
+      int16_t prog = payload[0] - '0';
+      WriteModbus(PROGSET, prog);
+    }
+  }
+  if (strcmp(topic, "ap/technical/ventilation/bypassset") == 0) {
+    if (length == 1 && payload[0] >= '0' && payload[0] <= '1') {
+      int16_t byp = payload[0] - '0';
+      WriteModbus(BYPASSSET, byp);
+    }
+  }
+  if (strcmp(topic, "ap/technical/ventilation/keypress") == 0) {
+    if (length == 4 && payload[0] >= '0' && payload[0] <= '2') {
       String str;
-      for (int i = 0; i < length; i++)
-      {
+      for (int i = 0; i < length; i++) {
+        str += (char)payload[i];
+      }
+      WriteModbus(KEYPRESS, str.toInt());
+    }
+  }
+  if (strcmp(topic, "ap/technical/ventilation/tempset") == 0) {
+    if (length == 4 && payload[0] >= '0' && payload[0] <= '2') {
+      String str;
+      for (int i = 0; i < length; i++) {
         str += (char)payload[i];
       }
       WriteModbus(TEMPSET, str.toInt());
@@ -360,10 +387,14 @@ void mqttreconnect()
   {
     if (mqttclient.connect(chipid, mqttusername, mqttpassword))
     {
-      mqttclient.subscribe("ventilation/ventset");
-      mqttclient.subscribe("ventilation/modeset");
-      mqttclient.subscribe("ventilation/runset");
-      mqttclient.subscribe("ventilation/tempset");
+      mqttclient.publish("ap/technical/ventilation/status", "Online");
+      mqttclient.subscribe("ap/technical/ventilation/ventset");
+      mqttclient.subscribe("ap/technical/ventilation/modeset");
+      mqttclient.subscribe("ap/technical/ventilation/runset");
+      mqttclient.subscribe("ap/technical/ventilation/tempset");
+      mqttclient.subscribe("ap/technical/ventilation/progset");
+      mqttclient.subscribe("ap/technical/ventilation/bypassset");
+      mqttclient.subscribe("ap/technical/ventilation/keypress");
     }
     else
     {
@@ -406,7 +437,7 @@ void loop()
     long now = millis();
     if (now - lastMsg > SENDINTERVAL)
     {
-      reqtypes rr[] = {reqtemp, reqcontrol, reqoutput, reqspeed, reqalarm, reqinputairtemp, requser, reqdisplay}; // put another register in this line to subscribe
+      reqtypes rr[] = {reqtemp, reqcontrol, reqprogram, reqtime, reqinfo, reqoutput, reqdisplay, reqspeed, reqalarm, reqairtemp, reqinputairtemp, reqairflow, requser, reqapp}; // put another register in this line to subscribe
       for (int i = 0; i < (sizeof(rr)/sizeof(rr[0])); i++)
       {
         reqtypes r = rr[i];
@@ -423,38 +454,62 @@ void loop()
               switch (r)
               {
               case reqcontrol:
-                mqname = "ventilation/control/"; // Subscribe to the "control" register
+                mqname = "ap/technical/ventilation/control/"; // Subscribe to the "control" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqprogram:
+                mqname = "ap/technical/ventilation/program/"; // Subscribe to the "control" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqtime:
+                mqname = "ap/technical/ventilation/time/"; // Subscribe to the "info" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqinfo:
+                mqname = "ap/technical/ventilation/info/"; // Subscribe to the "info" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
               case reqoutput:
-                mqname = "ventilation/output/"; // Subscribe to the "output" register
-                itoa((rsbuffer[i]), numstr, 10);
-                break;
-              case reqdisplay:
-                mqname = "ventilation/display/"; // Subscribe to the "input display" register
+                mqname = "ap/technical/ventilation/output/"; // Subscribe to the "output" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
               case reqspeed:
-                mqname = "ventilation/speed/"; // Subscribe to the "speed" register
+                mqname = "ap/technical/ventilation/speed/"; // Subscribe to the "speed" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
               case reqalarm:
-                mqname = "ventilation/alarm/"; // Subscribe to the "alarm" register
+                mqname = "ap/technical/ventilation/alarm/"; // Subscribe to the "alarm" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqairtemp:
+                mqname = "ap/technical/ventilation/airtemp/"; // Subscribe to the "airtemp" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
               case reqinputairtemp:
-                mqname = "ventilation/inputairtemp/"; // Subscribe to the "inputairtemp" register
+                mqname = "ap/technical/ventilation/inputairtemp/"; // Subscribe to the "inputairtemp" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqairflow:
+                mqname = "ap/technical/ventilation/airflow/"; // Subscribe to the "airflow" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;
+              case reqapp:
+                mqname = "ap/technical/ventilation/app/"; // Subscribe to the "app" register
                 itoa((rsbuffer[i]), numstr, 10);
                 break;
               case requser:
-                mqname = "ventilation/user/"; // Subscribe to the "user" register
+                mqname = "ap/technical/ventilation/user/"; // Subscribe to the "user" register
                 itoa((rsbuffer[i]), numstr, 10);
-                break;          
+                break;
+              case reqdisplay:
+                mqname = "ap/technical/ventilation/display/"; // Subscribe to the "AirBypass.IsOpen" register
+                itoa((rsbuffer[i]), numstr, 10);
+                break;            
               case reqtemp:
                 if (strncmp("RH", name, 2) == 0) {
-                  mqname = "ventilation/moist/"; // Subscribe to moisture-level
+                  mqname = "ap/technical/ventilation/humidity/"; // Subscribe to humidity-level
                 } else {
-                  mqname = "ventilation/temp/"; // Subscribe to "temp" register
+                  mqname = "ap/technical/ventilation/temp/"; // Subscribe to "temp" register
                 }
                 dtostrf((rsbuffer[i] / 100.0), 5, 2, numstr);
                 break;
@@ -476,7 +531,7 @@ void loop()
         if (result == 0)
         {
           String text = "";
-          String mqname = "ventilation/text/";
+          String mqname = "ap/technical/ventilation/text/";
 
           for (int i = 0; i < regsizes[r]; i++)
           {
